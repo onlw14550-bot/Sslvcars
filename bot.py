@@ -3,8 +3,11 @@ import re
 import json
 import time
 import statistics
+import warnings
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 # ---------- НАСТРОЙКИ ----------
 MAX_PRICE = 5000          # только авто до этой цены, €
@@ -35,6 +38,13 @@ S.headers.update({
     "Accept-Language": "ru,en;q=0.8",
 })
 detail_requests = 0
+DIAG = []
+
+
+def note(url, status, body=""):
+    if len(DIAG) < 4:
+        DIAG.append(f"{url.replace(BASE, '')} -> {status}, {len(body)} симв., начало: "
+                    f"{body[:120]!r}")
 
 
 def fetch(url):
@@ -42,11 +52,13 @@ def fetch(url):
         try:
             r = S.get(url, timeout=25)
             time.sleep(DELAY)
+            note(url, r.status_code, r.text)
             if r.status_code == 200:
                 return r.text
             if r.status_code == 404:
                 return None
-        except requests.RequestException:
+        except requests.RequestException as e:
+            note(url, "ошибка " + type(e).__name__)
             time.sleep(2)
     return None
 
@@ -78,24 +90,25 @@ def parse_engine(s):
 def parse_list(html):
     soup = BeautifulSoup(html, "html.parser")
     out = []
-    for tr in soup.select("tr[id^=tr_]"):
-        if tr.get("id", "").startswith("tr_bnr"):
+    for tr in soup.find_all("tr"):
+        a = tr.find("a", href=re.compile(r"/msg/"))
+        if not a:
             continue
-        a = tr.select_one("a.am")
-        cells = [td.get_text(" ", strip=True) for td in tr.select("td.msga2-o")]
-        if not a or len(cells) < 5:
+        cells = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
+        pi = None
+        for i in range(len(cells) - 1, -1, -1):
+            if "€" in cells[i]:
+                pi = i
+                break
+        if pi is None or pi < 3:
             continue
-        _model, year, eng, km, price = cells[-5:]
-        href = a.get("href", "")
-        parts = href.split("/")
-        # /msg/ru/transport/cars/<brand>/<model>/xxxx.html
-        if "cars" not in parts:
+        year, eng, km, price = cells[pi - 3], cells[pi - 2], cells[pi - 1], cells[pi]
+        href = re.sub(r"^https?://[^/]+", "", a.get("href", ""))
+        m = re.search(r"/cars/([^/]+)/([^/]+)/[^/]+\.html", href)
+        if not m:
             continue
-        i = parts.index("cars")
-        if len(parts) < i + 4:
-            continue
-        brand, model = parts[i + 1], parts[i + 2]
-        y = re.search(r"\d{4}", year or "")
+        brand, model = m.group(1), m.group(2)
+        y = re.search(r"(19|20)\d\d", year or "")
         vol, fuel = parse_engine(eng)
         p = to_int(price)
         k = parse_km(km)
@@ -114,7 +127,8 @@ def get_brand_urls():
     soup = BeautifulSoup(html, "html.parser")
     seen, urls = set(), []
     for a in soup.select("a[href]"):
-        m = re.match(r"^/ru/transport/cars/([a-z0-9\-]+)/$", a["href"])
+        h = re.sub(r"^https?://[^/]+", "", a["href"])
+        m = re.match(r"^/ru/transport/cars/([a-z0-9\-]+)/$", h)
         if not m:
             continue
         slug = m.group(1)
@@ -123,7 +137,7 @@ def get_brand_urls():
         if BRANDS and slug not in BRANDS:
             continue
         seen.add(slug)
-        urls.append(BASE + a["href"])
+        urls.append(BASE + h)
     return urls
 
 
@@ -164,7 +178,7 @@ def get_transmission(ad_id, cache):
                 t = nxt.get_text(strip=True).lower()
                 if "авто" in t or "automāt" in t or "automat" in t:
                     val = "автомат"
-                elif "мех" in t or "manu" in t:
+                elif "руч" in t or "мех" in t or "manu" in t or "mehān" in t:
                     val = "механика"
                 else:
                     val = t or "?"
@@ -218,8 +232,7 @@ def main():
     ads = collect_ads()
     print("Собрано объявлений:", len(ads))
     if len(ads) < 100:
-        tg(f"⚠️ Бот собрал только {len(ads)} объявлений. Возможно, ss.lv изменил разметку "
-           f"или блокирует запросы.")
+        tg(f"⚠️ Бот собрал только {len(ads)} объявлений.\n\nДиагностика:\n" + "\n".join(DIAG))
         return
 
     groups = {}

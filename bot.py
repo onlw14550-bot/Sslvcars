@@ -12,7 +12,8 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 # ---------- НАСТРОЙКИ ----------
 MAX_PRICE = 5000          # только авто до этой цены, €
 MIN_DISCOUNT = 0.20       # от 20% ниже медианы и больше
-MAX_DISCOUNT = 0.50       # верхней границы нет
+MAX_DISCOUNT = 1.0        # верхней границы нет
+MIN_GAP = 500             # и разница с медианой минимум 500 €
 MIN_PEERS = 5             # минимум похожих авто для расчёта медианы
 YEAR_TOL = 2              # разница в годах +-
 KM_TOL = 0.25             # разница в пробеге +-25%
@@ -249,7 +250,7 @@ def main():
             continue
         med = statistics.median(p["price"] for p in peers)
         d = 1 - a["price"] / med
-        if d >= 0.15:
+        if d >= 0.15 and med - a["price"] >= MIN_GAP * 0.8:
             cands.append((d, a))
     cands.sort(key=lambda x: -x[0])
     print("Кандидатов:", len(cands))
@@ -273,11 +274,11 @@ def main():
             continue
         med = statistics.median(p["price"] for p in same)
         d = 1 - a["price"] / med
-        if not (MIN_DISCOUNT <= d <= MAX_DISCOUNT):
+        if not (MIN_DISCOUNT <= d <= MAX_DISCOUNT) or med - a["price"] < MIN_GAP:
             continue
         tg(f"🚗 {a['brand'].title()} {a['model'].title()} {a['year']} · "
            f"{a['vol']}{'' if a['fuel'] == 'P' else a['fuel']} · {trans}\n"
-           f"Цена: {a['price']} € · медиана аналогов: {int(med)} € (−{int(d * 100)}%)\n"
+           f"Цена: {a['price']} € · медиана аналогов: {int(med)} € (−{int(med - a['price'])} €, −{int(d * 100)}%)\n"
            f"Пробег: {a['km']} км · аналогов: {len(same)}\n"
            f"{BASE + a['id']}")
         seen.add(a["id"])

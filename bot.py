@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 # ---------- НАСТРОЙКИ ----------
 MAX_PRICE = 5000          # только авто до этой цены, €
 MIN_DISCOUNT = 0.20       # от 20% ниже медианы и больше
-MAX_DISCOUNT = 1.0        # верхней границы нет
+MAX_DISCOUNT = 0.50       # верхней границы нет
 MIN_PEERS = 5             # минимум похожих авто для расчёта медианы
 YEAR_TOL = 2              # разница в годах +-
 KM_TOL = 0.25             # разница в пробеге +-25%

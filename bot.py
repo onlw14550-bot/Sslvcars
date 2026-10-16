@@ -115,8 +115,16 @@ def parse_list(html):
         k = parse_km(km)
         if not (y and vol and p and k) or p < 300:
             continue
+        img = tr.find("img")
+        src = ""
+        if img:
+            src = img.get("src") or img.get("data-src") or ""
+            if src.startswith("//"):
+                src = "https:" + src
+            if not src.startswith("http"):
+                src = ""
         out.append({"id": href, "brand": brand, "model": model, "year": int(y.group()),
-                    "vol": vol, "fuel": fuel, "km": k, "price": p,
+                    "vol": vol, "fuel": fuel, "km": k, "price": p, "img": src,
                     "title": a.get_text(" ", strip=True)[:80]})
     return out
 
@@ -207,7 +215,7 @@ def save(path, data):
         json.dump(data, f, ensure_ascii=False)
 
 
-def tg(text):
+def tg(text, photo=None):
     global CHAT_ID
     if not CHAT_ID:
         r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", timeout=25).json()
@@ -219,6 +227,22 @@ def tg(text):
                 break
         if not CHAT_ID:
             raise SystemExit("Напиши своему боту любое сообщение в Telegram и запусти снова.")
+    if photo:
+        # сначала крупная версия фото, потом миниатюра
+        variants = []
+        big = re.sub(r"\.t\.jpg$", ".800.jpg", photo)
+        if big != photo:
+            variants.append(big)
+        variants.append(photo)
+        for url in variants:
+            try:
+                r = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
+                                  data={"chat_id": CHAT_ID, "photo": url,
+                                        "caption": text[:1000]}, timeout=40)
+                if r.ok and r.json().get("ok"):
+                    return
+            except requests.RequestException:
+                pass
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
                   data={"chat_id": CHAT_ID, "text": text}, timeout=25)
 
@@ -280,7 +304,7 @@ def main():
            f"{a['vol']}{'' if a['fuel'] == 'P' else a['fuel']} · {trans}\n"
            f"Цена: {a['price']} € · медиана аналогов: {int(med)} € (−{int(med - a['price'])} €, −{int(d * 100)}%)\n"
            f"Пробег: {a['km']} км · аналогов: {len(same)}\n"
-           f"{BASE + a['id']}")
+           f"{BASE + a['id']}", photo=a.get("img"))
         seen.add(a["id"])
         sent += 1
 
